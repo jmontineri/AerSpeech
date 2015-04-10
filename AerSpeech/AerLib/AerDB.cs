@@ -11,6 +11,9 @@ using Newtonsoft.Json.Linq;
 
 namespace AerSpeech
 {
+    /// <summary>
+    /// Defines an Elite System
+    /// </summary>
     public class EliteSystem
     {
         public string Name;
@@ -33,13 +36,16 @@ namespace AerSpeech
             Stations = new List<EliteStation>();
         }
     }
+    /// <summary>
+    /// Defines an Elite Station
+    /// </summary>
     public class EliteStation
     {
         public string Name;
         public int id;
         public EliteSystem System;
         public string MaxPadSize;
-        public string DistanceFromStar;
+        public int DistanceFromStar;
         public string Faction;
         public string Government;
         public string Allegiance;
@@ -55,18 +61,45 @@ namespace AerSpeech
         public long UpdatedAt;
         public List<EliteCommodity> Imports;
         public List<EliteCommodity> Exports;
+        public List<EliteCommodity> Prohibited;
+        public List<EliteListing> Listings;
+        public List<string> Economies;
 
         public EliteStation()
         {
             Imports = new List<EliteCommodity>();
             Exports = new List<EliteCommodity>();
+            Prohibited = new List<EliteCommodity>();
+            Listings = new List<EliteListing>();
+            Economies = new List<string>();
         }
     }
+
+    /// <summary>
+    /// Defines an Elite commodity
+    /// </summary>
     public class EliteCommodity
     {
         public string Name;
         public int id;
         public int AveragePrice;
+    }
+
+    /// <summary>
+    /// Defines an Elite Listing
+    /// </summary>
+    public class EliteListing
+    {
+        public int id;
+        public EliteCommodity Commodity;
+        //public EliteStation Station;
+        public int StationId; //Because I'm lazy at the moment.
+        public int Supply;
+        public int Demand;
+        public int BuyPrice;
+        public int SellPrice;
+        public long UpdatedAt;
+        public int UpdateCount;
     }
 
     /// <summary>
@@ -95,9 +128,17 @@ namespace AerSpeech
 
             if (File.Exists(systemsJson) && File.Exists(commoditiesJson) && File.Exists(stationsJson))
             {
-                _ParseSystems(File.ReadAllText(systemsJson));
-                _ParseCommodities(File.ReadAllText(commoditiesJson));
-                _ParseStations(File.ReadAllText(stationsJson));
+                try
+                {
+                    _ParseSystems(File.ReadAllText(systemsJson));
+                    _ParseCommodities(File.ReadAllText(commoditiesJson));
+                    _ParseStations(File.ReadAllText(stationsJson));
+                }
+                catch (Exception e)
+                {
+                    AerDebug.LogError("Encountered a problem parsing EDDB json files");
+                    AerDebug.LogException(e);
+                }
             }
             else
             {
@@ -106,14 +147,21 @@ namespace AerSpeech
             Loaded = true;
         }
 
+//This is getting out of hand for the AerDB file, perhaps a static AerJSON should be created
+// As a container for all of these darn utility methods
+//TODO: Make AerEddb or AerJSON and create an interface between AerDB and it. -SingularTier
+//WARNING: THE CODE IN THE JSON PARSING REGION WILL MAKE YOU VOMIT.
+#region JSON Parsing
+        /// <summary>
+        /// Populates the System Registry with data from the eddb json string
+        /// </summary>
+        /// <param name="json">Json string of EDDB systems.json data</param>
         private void _ParseSystems(string json)
         {
             AerDebug.Log("Loading Systems...");
             Stopwatch timer = new Stopwatch();
             timer.Start();
             JArray ja = JArray.Parse(json);
-
-            //System.IO.StreamWriter file = new System.IO.StreamWriter(@"output.xml");
 
             foreach (JObject jo in ja)
             {
@@ -138,8 +186,6 @@ namespace AerSpeech
 
                     _SystemRegistry.Add(es.id, es);
                     _SystemNameRegistry.Add(es.Name.ToLower(), es.id);
-
-                    //file.WriteLine(@"<item> " + jo["name"] + " <tag> out.id="+ jo["id"] + " </tag></item>");
                 }
                 catch (FormatException e)
                 {
@@ -147,11 +193,12 @@ namespace AerSpeech
                 }
             
             }
-
-            //file.Close();
-
             timer.Stop();
         }
+        /// <summary>
+        /// Populates the Commodity Registry with data from the eddb json string
+        /// </summary>
+        /// <param name="json">Json string of EDDB commodities.json data</param>
         private void _ParseCommodities(string json)
         {
             AerDebug.Log("Loading Commodities...");
@@ -159,8 +206,6 @@ namespace AerSpeech
             timer.Start();
             JArray ja = JArray.Parse(json);
 
-            //System.IO.StreamWriter file = new System.IO.StreamWriter(@"output.xml");
-            
             foreach (JObject jo in ja)
             {
                 EliteCommodity ec = new EliteCommodity();
@@ -178,89 +223,306 @@ namespace AerSpeech
                 ec.id = int.Parse(jo["id"].ToString());
                 _CommodityRegistry.Add(ec.id, ec);
                 _CommodityNameRegistry.Add(ec.Name.ToLower(), ec.id);
-                //file.WriteLine(@"<item> " + jo["name"] + " <tag> out.id="+ jo["id"] + " </tag></item>");
-                
 
             }
 
-            //file.Close();
             timer.Stop();
         }
+        /// <summary>
+        /// Populates the Station Data with data from the eddb json string
+        /// </summary>
+        /// <param name="json">Json string of EDDB stations.json data</param>
         private void _ParseStations(string json)
         {
-            AerDebug.Log("Loading Stations...");
-            Stopwatch timer = new Stopwatch();
-            timer.Start();
-            JArray ja = JArray.Parse(json);
+            JsonTextReader jsonReader = new JsonTextReader(new StringReader(json));
+            int arrayDepth = 0;
 
-            foreach (JObject jo in ja)
+            while(jsonReader.Read())
             {
-                try
+                switch(jsonReader.TokenType)
                 {
-                    int system_id = int.Parse(jo["system_id"].ToString());
-                    EliteSystem es = GetSystem(system_id);
-                    if (es == null)
-                    {
-                        continue;
-                    }
-
-                    EliteStation station = new EliteStation();
-                    station.Name = jo["name"].ToString();
-                    station.id = int.Parse(jo["id"].ToString());
-                    station.System = es;
-                    station.MaxPadSize = jo["max_landing_pad_size"].ToString();
-                    station.DistanceFromStar = jo["distance_to_star"].ToString();
-                    station.Faction = jo["faction"].ToString();
-                    station.Allegiance = jo["allegiance"].ToString();
-                    station.Government = jo["government"].ToString();
-                    station.State = jo["state"].ToString();
-                    station.StarportType = jo["type"].ToString();
-                    station.HasBlackmarket = jo["has_blackmarket"].ToString().Equals("1");
-                    station.HasCommodities = jo["has_commodities"].ToString().Equals("1");
-                    station.HasRefuel = jo["has_refuel"].ToString().Equals("1");
-                    station.HasRepair = jo["has_repair"].ToString().Equals("1");
-                    station.HasRearm = jo["has_rearm"].ToString().Equals("1");
-                    station.HasOutfitting = jo["has_outfitting"].ToString().Equals("1");
-                    station.HasShipyard = jo["has_shipyard"].ToString().Equals("1");
-                    station.UpdatedAt = long.Parse(jo["updated_at"].ToString());
-                    foreach (string commodity in jo["export_commodities"])
-                    {
-                        EliteCommodity ec = GetCommodity(commodity);
-
-                        if (ec != null)
+                    case JsonToken.StartArray:
+                        arrayDepth++;
+                        break;
+                    case JsonToken.StartObject:
+                        try
                         {
-                            station.Exports.Add(ec);
+                            EliteStation es = _ParseJsonStation(jsonReader);
+                            es.System.Stations.Add(es);
                         }
-                        else
+                        catch (Exception e)
                         {
-                            AerDebug.LogError("Found commodity I knew nothing about = " + commodity);
+                            AerDebug.LogError("Encountered a problem parsing stations.");
+                            AerDebug.LogException(e);
                         }
-                    }
-
-                    foreach (string commodity in jo["import_commodities"])
-                    {
-                        EliteCommodity ec = GetCommodity(commodity);
-
-                        if (ec != null)
-                        {
-                            station.Imports.Add(ec);
-                        }
-                        else
-                        {
-                            AerDebug.LogError("Found commodity I knew nothing about = " + commodity);
-                        }
-                    }
-
-                    es.Stations.Add(station);
-                }
-                catch (Exception e)
-                {
-                    AerDebug.LogError("Malformed/Unexpected Station JSON data, " + e.Message);
-                }
+                        break;
+                    case JsonToken.EndArray:
+                        arrayDepth--;
+                        break;
+                    default:
+                        AerDebug.LogError("Unknown JSON TokenType: " + jsonReader.TokenType);
+                        break;
+                }   
             }
-            AerDebug.Log("Should be ready."); 
+
+            if(arrayDepth != 0)
+            {
+                AerDebug.LogError("Malformed JSON parsing - arrayDepth == " + arrayDepth + " at end of parse");
+            }
         }
 
+
+        /// <summary>
+        /// Returns an EliteStation from a EDDB Json Object.
+        /// JsonReader MUST currently point to the StartObject token for the Station object.
+        /// </summary>
+        /// <param name="jsonReader">JsonReader populated with the Station Object</param>
+        /// <returns>Populated EliteStation data</returns>
+        private EliteStation _ParseJsonStation(JsonTextReader jsonReader)
+        {
+            EliteStation es = new EliteStation();
+
+            if (jsonReader.TokenType != JsonToken.StartObject)
+                AerDebug.LogError("Malformed JSON parsing - _ParseJsonStation must be called on a StartObject token");
+
+            while(jsonReader.TokenType != JsonToken.EndObject)
+            {
+                jsonReader.Read();
+                switch(jsonReader.TokenType)
+                {
+                    case JsonToken.PropertyName:
+                        switch(jsonReader.Value.ToString())
+                        {
+                            case "id":
+                                es.id = jsonReader.ReadAsInt32().GetValueOrDefault();
+                                break;
+                            case "name":
+                                es.Name = jsonReader.ReadAsString();
+                                break;
+                            case "system_id":
+                                es.System = GetSystem(jsonReader.ReadAsInt32().GetValueOrDefault());
+                                break;
+                            case "max_landing_pad_size":
+                                es.MaxPadSize = jsonReader.ReadAsString();
+                                break;
+                            case "distance_to_star":
+                                es.DistanceFromStar = jsonReader.ReadAsInt32().GetValueOrDefault();
+                                break;
+                            case "faction":
+                                es.Faction = jsonReader.ReadAsString();
+                                break;
+                            case "government":
+                                es.Government = jsonReader.ReadAsString();
+                                break;
+                            case "allegiance":
+                                es.Allegiance = jsonReader.ReadAsString();
+                                break;
+                            case "state":
+                                es.State = jsonReader.ReadAsString();
+                                break;
+                            case "type":
+                                es.StarportType = jsonReader.ReadAsString();
+                                break;
+                            case "has_blackmarket":
+                                es.HasBlackmarket = (jsonReader.ReadAsInt32().GetValueOrDefault() == 1);
+                                break;
+                            case "has_commodities":
+                                es.HasCommodities = (jsonReader.ReadAsInt32().GetValueOrDefault() == 1);
+                                break;
+                            case "has_refuel":
+                                es.HasRefuel = (jsonReader.ReadAsInt32().GetValueOrDefault() == 1);
+                                break;
+                            case "has_repear":
+                                es.HasRepair = (jsonReader.ReadAsInt32().GetValueOrDefault() == 1);
+                                break;
+                            case "has_rearm":
+                                es.HasRearm = (jsonReader.ReadAsInt32().GetValueOrDefault() == 1);
+                                break;
+                            case "has_outfitting":
+                                es.HasOutfitting = (jsonReader.ReadAsInt32().GetValueOrDefault() == 1);
+                                break;
+                            case "has_shipyard":
+                                es.HasShipyard = (jsonReader.ReadAsInt32().GetValueOrDefault() == 1);
+                                break;
+                            case "import_commodities":
+                                jsonReader.Read();
+                                es.Imports = _ParseJsonCommodities(jsonReader);
+                                break;
+                            case "export_commodities":
+                                jsonReader.Read();
+                                es.Exports = _ParseJsonCommodities(jsonReader);
+                                break;
+                            case "prohibited_commodities":
+                                jsonReader.Read();
+                                es.Prohibited = _ParseJsonCommodities(jsonReader);
+                                break;
+                            case "economies":
+                                jsonReader.Read();
+                                es.Economies = _ParseJsonEconomies(jsonReader);
+                                break;
+                            case "updated_at":
+                                es.UpdatedAt = jsonReader.ReadAsInt32().GetValueOrDefault();
+                                break;
+                            case "listings":
+                                jsonReader.Read();
+                                es.Listings = _ParseJsonListing(jsonReader);
+                                break;
+                            default:
+                                break;
+                        }
+                        break;
+                    case JsonToken.EndObject:
+                        break;
+                }
+            }
+
+            return es;
+            
+        }
+
+        /// <summary>
+        /// Returns a List of EliteListing objects from a EDDB Json Array.
+        /// JsonReader MUST currently point to the StartArray token for the Listing Array.
+        /// </summary>
+        /// <param name="jsonReader">JsonReader populated with the Listing Array</param>
+        /// <returns>List of populated EliteListing Data</returns>
+        private List<EliteListing> _ParseJsonListing(JsonTextReader jsonReader)
+        {
+            List<EliteListing> listings = new List<EliteListing>();
+            if (jsonReader.TokenType != JsonToken.StartArray)
+            {
+                AerDebug.LogError("_ParseJsonListing must be called at the start of an Array");
+                return null;
+            }
+            EliteListing currentListing = null;
+
+            while (jsonReader.TokenType != JsonToken.EndArray)
+            {
+                jsonReader.Read();
+                switch (jsonReader.TokenType)
+                {
+                    case JsonToken.StartObject:
+                        currentListing = new EliteListing();
+                        break;
+                    case JsonToken.EndObject:
+                        listings.Add(currentListing);
+                        break;
+                    case JsonToken.PropertyName:
+                        switch (jsonReader.Value.ToString())
+                        {
+                            case "id":
+                                currentListing.id = jsonReader.ReadAsInt32().GetValueOrDefault();
+                                break;
+                            case "station_id":
+                                currentListing.StationId = jsonReader.ReadAsInt32().GetValueOrDefault();
+                                break;
+                            case "commodity_id":
+                                currentListing.Commodity = GetCommodity(jsonReader.ReadAsInt32().GetValueOrDefault());
+                                break;
+                            case "supply":
+                                currentListing.Supply = jsonReader.ReadAsInt32().GetValueOrDefault();
+                                break;
+                            case "buy_price":
+                                currentListing.BuyPrice = jsonReader.ReadAsInt32().GetValueOrDefault();
+                                break;
+                            case "sell_price":
+                                currentListing.SellPrice = jsonReader.ReadAsInt32().GetValueOrDefault();
+                                break;
+                            case "demand":
+                                currentListing.Demand = jsonReader.ReadAsInt32().GetValueOrDefault();
+                                break;
+                            case "collected_at":
+                                currentListing.UpdatedAt = jsonReader.ReadAsInt32().GetValueOrDefault();
+                                break;
+                            case "update_count":
+                                currentListing.UpdateCount = jsonReader.ReadAsInt32().GetValueOrDefault();
+                                break;
+                            default:
+                                AerDebug.LogError("Unknown JSON property name: " + jsonReader.Value.ToString());
+                                break;
+                        }
+                        break;
+                    case JsonToken.EndArray:
+                        break;
+                    default:
+                        AerDebug.LogError("Unknown token type in listing list, " + jsonReader.TokenType);
+                        break;
+                }
+            }
+            return listings;
+        }
+        /// <summary>
+        /// Returns a List of EliteCommodity objects from a EDDB Json Array.
+        /// JsonReader MUST currently point to the StartArray token for the Commodity Array.
+        /// Pulls Commodity Data out of the CommodityRegistry
+        /// Used for import/export/prohibited commodity lists
+        /// </summary>
+        /// <param name="jsonReader">JsonReader populated with the Commodity Array</param>
+        /// <returns>List of populated EliteCommodity Data</returns>
+        private List<EliteCommodity> _ParseJsonCommodities(JsonTextReader jsonReader)
+        {
+            List<EliteCommodity> commodities = new List<EliteCommodity>();
+
+            if(jsonReader.TokenType != JsonToken.StartArray)
+            {
+                AerDebug.LogError("_ParseJsonCommodities must be called at the start of an Array");
+                return null;
+            }
+
+            while(jsonReader.TokenType != JsonToken.EndArray)
+            {
+                jsonReader.Read();
+                switch(jsonReader.TokenType)
+                {
+                    case JsonToken.String:
+                        commodities.Add(GetCommodity(jsonReader.Value.ToString()));
+                        break;
+                    case JsonToken.EndArray:
+                        break;
+                    default:
+                        AerDebug.LogError("Unknown token type in commodities list, " + jsonReader.TokenType);
+                        break;
+                }
+            }
+
+            return commodities;
+        }
+
+        /// <summary>
+        /// Returns a List of strings from a EDDB Json Array.
+        /// JsonReader MUST currently point to the StartArray token for the string Array.
+        /// Used to pull Economies out of the economy list in station data.
+        /// </summary>
+        /// <param name="jsonReader">JsonReader populated with the string Array</param>
+        /// <returns>List of strings that define the station economies</returns>
+        private List<string> _ParseJsonEconomies(JsonTextReader jsonReader)
+        {
+            List<string> econs = new List<string>();
+            if (jsonReader.TokenType != JsonToken.StartArray)
+            {
+                AerDebug.LogError("_ParseJsonEconomies must be called at the start of an Array");
+                return null;
+            }
+
+            while (jsonReader.TokenType != JsonToken.EndArray)
+            {
+                jsonReader.Read();
+                switch (jsonReader.TokenType)
+                {
+                    case JsonToken.String:
+                        econs.Add(jsonReader.Value.ToString());
+                        break;
+                    case JsonToken.EndArray:
+                        break;
+                    default:
+                        AerDebug.LogError("Unknown token type in economies list, " + jsonReader.TokenType);
+                        break;
+                }
+            }
+            return econs;
+        }
+
+#endregion
 #if DEBUG
         //This creates grammar rules out of our data
         public void DBG_CompileGrammars()
@@ -302,7 +564,6 @@ namespace AerSpeech
             }
             file.Close();
         }
-
         public string stripForXML(string input)
         {
             string output;
@@ -324,6 +585,10 @@ namespace AerSpeech
         public EliteSystem GetSystem(string name)
         {
             int system_id;
+
+            if (name == null)
+                return null;
+
             if (_SystemNameRegistry.ContainsKey(name.ToLower()))
                 system_id = _SystemNameRegistry[name.ToLower()];
             else
@@ -370,7 +635,6 @@ namespace AerSpeech
             else
                 return null;
         }
-
         public int GetPrice(int commodity_id)
         {
             EliteCommodity ec = GetCommodity(commodity_id);
@@ -383,7 +647,6 @@ namespace AerSpeech
                 return ec.AveragePrice;
             }
         }
-
         public EliteStation FindCommodity(int commodity_id, EliteSystem origin, float distance)
         {
             List<EliteSystem> nearbySystems = GetSystemsAround(origin, distance);
@@ -392,10 +655,9 @@ namespace AerSpeech
             List<EliteStation> stationsWithCommodity = new List<EliteStation>(); ;
             foreach(EliteSystem sys in nearbySystems)
             {
-                //AerDebug.Log("Searching system: " + sys.Name);
                 var validStations = from stations in sys.Stations
-                                   from commodites in stations.Exports
-                                   where commodites.id == commodity_id
+                                   from listing in stations.Listings
+                                    where ((listing.Commodity.id == commodity_id) && (listing.Supply > 0) && ((listing.SellPrice > 0)))
                                    select stations;
 
                 stationsWithCommodity.AddRange(validStations);
@@ -405,16 +667,27 @@ namespace AerSpeech
             foreach (EliteStation es in stationsWithCommodity)
             {
                 double thisDistance = DistanceSqr(es.System, origin);
-                if (thisDistance < closestDistance)
+                if (thisDistance <= closestDistance)
                 {
-                    closest = es;
-                    closestDistance = thisDistance;
+                    //If the two stations are in the same system, choose the one closest to the star
+                    if ((closest != null) && (es.System.id == closest.System.id))
+                    {
+                        if(es.DistanceFromStar < closest.DistanceFromStar)
+                        {
+                            closest = es;
+                            closestDistance = thisDistance;
+                        }
+                    }
+                    else
+                    {
+                        closest = es;
+                        closestDistance = thisDistance;
+                    }
                 }
             }
 
             return closest;
         }
-
         public List<EliteSystem> GetSystemsAround(EliteSystem origin, float distance)
         {
             float distanceSqr = distance * distance;
@@ -424,7 +697,6 @@ namespace AerSpeech
 
             return SystemsInRange.ToList<EliteSystem>();
         }
-
         public double DistanceSqr(EliteSystem es1, EliteSystem es2)
         {
             float x = es1.x - es2.x;
