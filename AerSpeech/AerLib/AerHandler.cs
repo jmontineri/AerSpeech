@@ -277,10 +277,12 @@ namespace AerSpeech
             _EventRegistry.Add("TypeNato", TypeNato_Handler);
             _EventRegistry.Add("TypeSystem", TypeSystem_Handler);
             _EventRegistry.Add("TypeCurrentSystem", TypeCurrentSystem_Handler);
+            _EventRegistry.Add("Calculate", Calculate_Handler);
             _EventRegistry.Add("StationDistance", StationDistance_Handler);
             _EventRegistry.Add("SayCurrentSystem", SayCurrentSystem_Handler);
             _EventRegistry.Add("SayCurrentVersion", SayCurrentVersion_Handler); 
         }
+
 
 #region DebugPriceCheck
         public void DBG_CompileGrammars()
@@ -527,6 +529,13 @@ namespace AerSpeech
             _Talk.RandomAck();
             _Keyboard.Type(_LocalSystem.Name);
         }
+
+        private void Calculate_Handler(AerRecognitionResult result)
+        {
+            AerCalculate calculator = new AerCalculate();
+            _Talk.Say(calculator.CalculationResult(result.Data));
+        }
+
         public void StationDistance_Handler(AerRecognitionResult result)
         {
             if(result.System != null)

@@ -45,6 +45,7 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="AerCalculate.cs" />
     <Compile Include="AerDB.cs" />
     <Compile Include="AerDebug.cs" />
     <Compile Include="AerHandler.cs" />
